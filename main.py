@@ -606,6 +606,10 @@ class JarvisLive:
         self._proactive        = ProactiveEngine()
         self._last_user_speech = time.monotonic()  # updated on every user utterance
         self._session_log: list[str] = []          # conversation turns for end-of-session summary
+        # Observed owner text for the in-flight turn (before turn_complete logs it).
+        self._owner_in_progress_utterance: str = ""
+        # Owner text from turn_complete in this Live response (for tool_call after complete).
+        self._owner_shutdown_turn_utterance: str = ""
 
         self._enhanced_live = True  # proactive audio; auto-disabled if the server rejects it
         self._tuned_live    = True  # turn-taking / media / thinking knobs; same fallback
@@ -1528,6 +1532,7 @@ class JarvisLive:
                             if txt:
                                 in_buf.append(txt)
                                 self._last_user_speech = time.monotonic()
+                                self._owner_in_progress_utterance = " ".join(in_buf).strip()
 
                         if sc.turn_complete:
                             if self._turn_done_event:
@@ -1539,10 +1544,13 @@ class JarvisLive:
                                 self._interrupted = False
                                 in_buf  = []
                                 out_buf = []
+                                self._owner_in_progress_utterance = ""
+                                self._owner_shutdown_turn_utterance = ""
                                 self._visemes.reset()
                                 continue
 
                             full_in = " ".join(in_buf).strip()
+                            self._owner_shutdown_turn_utterance = full_in if full_in else ""
                             if full_in:
                                 self._last_out_logged = ""   # new exchange
                                 self.ui.write_log(f"You: {full_in}")
@@ -1554,6 +1562,7 @@ class JarvisLive:
                                         "ts": datetime.now().isoformat(),
                                     }))
                             in_buf = []
+                            self._owner_in_progress_utterance = ""
 
                             full_out = " ".join(out_buf).strip()
                             # Second line of defence: even if a repeat slips
@@ -1584,6 +1593,9 @@ class JarvisLive:
                                 asyncio.create_task(_cam_close())
 
                     if response.tool_call:
+                        pending_in = " ".join(in_buf).strip()
+                        if pending_in:
+                            self._owner_in_progress_utterance = pending_in
                         fn_responses = []
                         for fc in response.tool_call.function_calls:
                             print(f"[JARVIS] 📞 {fc.name}")
@@ -1593,6 +1605,9 @@ class JarvisLive:
                             function_responses=fn_responses
                         )
                         await self._flush_pending_vision()
+
+                    # Turn-bound shutdown evidence does not carry to the next Live response.
+                    self._owner_shutdown_turn_utterance = ""
         except Exception as e:
             print(f"[JARVIS] ❌ Recv: {e}")
             traceback.print_exc()
