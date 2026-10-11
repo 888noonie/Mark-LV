@@ -2023,6 +2023,10 @@ class JarvisLive:
                 # No audio for 1 s → phone mic inactive, give PC mic back
                 self._phone_active = False
                 continue
+            if not self._awake:
+                # Never stream phone-origin PCM to Live while asleep (same as PC mic).
+                self._phone_active = False
+                continue
             self._phone_active = True   # phone is streaming — silence PC mic
             with self._speaking_lock:
                 speaking = self._is_speaking
