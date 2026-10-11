@@ -1322,10 +1322,11 @@ class JarvisLive:
             # detector, which runs its model in ITS OWN thread — the cost here is
             # only a queue push, so the audio path is never slowed. When wake word
             # is off (default) or we're awake, this is a single boolean check.
-            if self._wake_enabled and not self._awake:
-                det = self._wake_detector
-                if det is not None:
-                    det.feed(indata)
+            if not self._awake:
+                if self._wake_enabled:
+                    det = self._wake_detector
+                    if det is not None:
+                        det.feed(indata)
                 return
             with self._speaking_lock:
                 jarvis_speaking = self._is_speaking
