@@ -368,6 +368,23 @@ def save_plugin_config(namespace: str, values: dict) -> None:
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
 
+def replace_plugin_config(namespace: str, values: dict) -> None:
+    """Replace a namespace wholesale (drops keys absent from ``values``)."""
+    ensure_config_dir()
+    data: dict = {}
+    if CONFIG_FILE.exists():
+        try:
+            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    pc = data.get("plugin_config")
+    if not isinstance(pc, dict):
+        pc = {}
+    pc[namespace] = dict(values)
+    data["plugin_config"] = pc
+    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+
+
 def save_plugin_enabled(plugin_name: str, enabled: bool) -> None:
     ensure_config_dir()
     data: dict = {}
