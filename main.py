@@ -2220,9 +2220,12 @@ class JarvisLive:
                 # assistant would never come back at all: the feature meant to
                 # survive a reconnect would be the thing preventing one. Drop it
                 # once and let the next attempt start clean.
+                _err_low = str(e).lower()
                 if _resumed_with and (
-                    "resum" in str(e).lower()
-                    or "handle" in str(e).lower()
+                    "resum" in _err_low
+                    or "handle" in _err_low
+                    or "session not found" in _err_low
+                    or "policy violation" in _err_low
                     or "INVALID_ARGUMENT" in str(e)
                     or "NOT_FOUND" in str(e)
                 ):
@@ -2236,6 +2239,15 @@ class JarvisLive:
                 print(f"[JARVIS] Error ({type(e).__name__}): {e}")
                 traceback.print_exc()
 
+                if _gemini.is_resumption_connect_error(err_str):
+                    print("[JARVIS] 🔗 Live resumption rejected on connect — starting fresh")
+                    self.ui.write_log(
+                        "SYS: Could not restore the conversation — starting fresh."
+                    )
+                    self._resume_handle = None
+                    self._conn_backoff = 0
+                    continue
+
                 # Out of quota, or this model is not available to this key —
                 # step down the ladder and reconnect straight away. This is the
                 # difference between "JARVIS is quieter today" and "JARVIS does
@@ -2243,9 +2255,14 @@ class JarvisLive:
                 # limit always arrives mid-conversation.
                 if _gemini.note_live_failure(live_model, err_str):
                     nxt = _gemini.live_model()
+                    if _gemini.is_quota_error(err_str):
+                        reason = "the previous model is out of quota"
+                    elif _gemini.is_gone_error(err_str):
+                        reason = "the previous model is unavailable on this key"
+                    else:
+                        reason = "the previous model failed to connect"
                     self.ui.write_log(
-                        f"SYS: Switching to {nxt.split('/')[-1]} — the previous "
-                        f"model is out of quota."
+                        f"SYS: Switching to {nxt.split('/')[-1]} — {reason}."
                         if nxt != live_model else
                         "SYS: Every live model is rate-limited — retrying.")
                     self._conn_backoff = 0 if nxt != live_model else 15

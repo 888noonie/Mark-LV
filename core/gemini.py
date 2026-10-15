@@ -249,8 +249,18 @@ def is_unavailable_error(err: str) -> bool:
             or "unavailable" in low or "deadline_exceeded" in low)
 
 
+def is_resumption_connect_error(err: str) -> bool:
+    """Stale or cross-model Live handles — not quota and not a missing model."""
+    low = err.lower()
+    if "1008" in err and ("bidi" in low or "session" in low or "policy violation" in low):
+        return True
+    return "bidi" in low and "not found" in low
+
+
 def is_gone_error(err: str) -> bool:
     """The model is not there, or not ours to use — a different thing from busy."""
+    if is_resumption_connect_error(err):
+        return False
     low = err.lower()
     return ("404" in err or "not found" in low or "is not supported" in low
             or "permission" in low or "403" in err)
