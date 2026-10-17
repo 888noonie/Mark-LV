@@ -28,7 +28,7 @@ _APP_ALIASES: dict[str, dict[str, str]] = {
     "teams":              {"Windows": "msteams",                 "Darwin": "Microsoft Teams",      "Linux": "teams"},
     "skype":              {"Windows": "skype",                   "Darwin": "Skype",                "Linux": "skype"},
     "signal":             {"Windows": "signal",                  "Darwin": "Signal",               "Linux": "signal"},
-    "spotify":            {"Windows": "Spotify",                 "Darwin": "Spotify",              "Linux": "spotify"},
+    "spotify":            {"Windows": "Spotify",                 "Darwin": "Spotify",              "Linux": "https://open.spotify.com/"},
     "vlc":                {"Windows": "vlc",                     "Darwin": "VLC",                  "Linux": "vlc"},
     "netflix":            {"Windows": "Netflix",                 "Darwin": "Netflix",              "Linux": "firefox"},
     "vscode":             {"Windows": "code",                    "Darwin": "Visual Studio Code",   "Linux": "code"},
@@ -174,6 +174,18 @@ _LINUX_TERMINAL_FALLBACKS = [
 ]
 
 def _launch_linux(app_name: str) -> bool:
+
+    if app_name.startswith(("http://", "https://")):
+        try:
+            subprocess.Popen(
+                ["xdg-open", app_name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            time.sleep(1.0)
+            return True
+        except Exception:
+            pass
 
     # terminal emulators: try common ones in order
     if app_name in ("x-terminal-emulator", "gnome-terminal", "terminal"):
