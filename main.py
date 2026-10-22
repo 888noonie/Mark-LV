@@ -1322,8 +1322,8 @@ class JarvisLive:
             # detector, which runs its model in ITS OWN thread — the cost here is
             # only a queue push, so the audio path is never slowed. When wake word
             # is off (default) or we're awake, this is a single boolean check.
-            if not self._awake:
-                if self._wake_enabled:
+            if not self._awake or getattr(self, "_hold_microphone", False):
+                if self._wake_enabled and not self._awake:
                     det = self._wake_detector
                     if det is not None:
                         det.feed(indata)
@@ -2139,6 +2139,14 @@ class JarvisLive:
                     asyncio.TaskGroup() as tg,
                 ):
                     self.session          = session
+                    try:
+                        import instruction_runtime as _instruction_runtime
+                        _instruction_runtime.flush_pending_deliveries(self)
+                        pending_typed = list(getattr(self, "_pending_typed_commands", []) or [])
+                        if pending_typed:
+                            self._on_text_command(pending_typed[0])
+                    except Exception:
+                        pass
                     self.audio_in_queue   = asyncio.Queue()
                     self.out_queue        = asyncio.Queue(maxsize=200)
                     self._turn_done_event = asyncio.Event()
