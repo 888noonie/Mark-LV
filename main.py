@@ -926,7 +926,8 @@ class JarvisLive:
     def interrupt(self) -> None:
         """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
         self._interrupted = True
-        q = self.audio_in_queue
+        text_mode = bool(getattr(self, "_selected_text_model", None))
+        q = getattr(self, "_answer_audio_queue", None) if text_mode else self.audio_in_queue
         if q:
             drained = 0
             while True:
@@ -941,8 +942,9 @@ class JarvisLive:
         # The words we were about to mouth are never going to be spoken now.
         self._visemes.reset()
         self._play_cursor = 0.0     # next batch starts a fresh timeline
-        if self._turn_done_event:
-            self._turn_done_event.clear()
+        done = getattr(self, "_answer_turn_done", None) if text_mode else self._turn_done_event
+        if done:
+            done.clear()
         self.ui.write_log("SYS: Interrupted — listening...")
 
     def speak(self, text: str):
@@ -1633,6 +1635,11 @@ class JarvisLive:
             st.start()
             return st
 
+        text_mode = bool(getattr(self, "_selected_text_model", None))
+
+        def _speaker_unavailable():
+            self.ui.write_log("SYS: Speaker unavailable. The typed answer remains in the transcript.")
+
         try:
             stream = _open_spk(_spk_dev)
         except Exception as _e:
@@ -1640,10 +1647,26 @@ class JarvisLive:
             # open (exclusive mode, wrong sample rate, device asleep) must not
             # cost the user their voice. Fall back to the default and say so.
             if _spk_dev is None:
+                if text_mode:
+                    _speaker_unavailable()
+                    return
                 raise
             print(f"[JARVIS] ⚠️  Output device '{_spk_name}' failed: {_e} — using default")
             self.ui.write_log(f"SYS: Speaker '{_spk_name}' unavailable — using system default.")
-            stream = _open_spk(None)
+            try:
+                stream = _open_spk(None)
+            except Exception:
+                if text_mode:
+                    _speaker_unavailable()
+                    return
+                raise
+        if text_mode and getattr(self, "_answer_audio_queue", None) is None:
+            _speaker_unavailable()
+            stream.stop()
+            stream.close()
+            return
+        play_queue = self._answer_audio_queue if text_mode else self.audio_in_queue
+        play_done = self._answer_turn_done if text_mode else self._turn_done_event
 
         # Ask the device how far behind the speakers actually are, rather than
         # assuming. This is what the echo tail is sized from, so a machine with a
@@ -1662,17 +1685,17 @@ class JarvisLive:
             while True:
                 try:
                     chunk = await asyncio.wait_for(
-                        self.audio_in_queue.get(),
+                        play_queue.get(),
                         timeout=0.1
                     )
                 except asyncio.TimeoutError:
                     if (
-                        self._turn_done_event
-                        and self._turn_done_event.is_set()
-                        and self.audio_in_queue.empty()
+                        play_done
+                        and play_done.is_set()
+                        and play_queue.empty()
                     ):
                         self.set_speaking(False)
-                        self._turn_done_event.clear()
+                        play_done.clear()
                     continue
 
                 self.set_speaking(True)
@@ -1683,7 +1706,7 @@ class JarvisLive:
                 batch = bytearray(chunk)
                 while len(batch) < 9600:   # 9600 bytes ≈ 200 ms at 24 kHz / 16-bit mono
                     try:
-                        batch.extend(self.audio_in_queue.get_nowait())
+                        batch.extend(play_queue.get_nowait())
                     except asyncio.QueueEmpty:
                         break
 
@@ -2160,6 +2183,9 @@ class JarvisLive:
                     self.audio_in_queue   = asyncio.Queue()
                     self.out_queue        = asyncio.Queue(maxsize=200)
                     self._turn_done_event = asyncio.Event()
+                    if _text_model:
+                        self._answer_audio_queue = asyncio.Queue()
+                        self._answer_turn_done = asyncio.Event()
 
                     # Reset transient state that must not carry over from a previous session
                     self._pending_vision       = None
