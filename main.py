@@ -2203,11 +2203,11 @@ class JarvisLive:
                         await self._dashboard.broadcast({"type": "status", "state": "active"})
 
                     tg.create_task(self._watch_reconnect())
+                    tg.create_task(self._play_audio())
                     if not _text_model:
                         tg.create_task(self._send_realtime())
                         tg.create_task(self._listen_audio())
                         tg.create_task(self._receive_audio())
-                        tg.create_task(self._play_audio())
                         tg.create_task(self._run_system_monitor())
                         tg.create_task(self._run_background_monitor())
                         tg.create_task(self._run_proactive_mode())
