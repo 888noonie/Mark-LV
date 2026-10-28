@@ -2123,7 +2123,9 @@ class JarvisLive:
                 global LIVE_MODEL
                 if _text_model:
                     live_model = None
-                    print(f"[JARVIS] Local text model: {_text_model}")
+                    _provider = getattr(self, "_selected_text_provider", None) or "ollama_local"
+                    _label = "Ollama Cloud" if _provider == "ollama_cloud" else "Ollama Local"
+                    print(f"[JARVIS] {_label} text model: {_text_model}")
                 else:
                     LIVE_MODEL = _gemini.live_model()
                     live_model = LIVE_MODEL
@@ -2179,7 +2181,14 @@ class JarvisLive:
                     if _text_model:
                         self._awake = not self._wake_enabled
                         self.ui.set_state("SLEEPING" if self._wake_enabled else "LISTENING")
-                        self.ui.write_log("SYS: Local text brain ready; microphone and speech output unavailable.")
+                        try:
+                            _cfg = json.loads(open(API_CONFIG_PATH, encoding="utf-8").read())
+                            self._asst_name = (_cfg.get("assistant_name") or "JARVIS").strip() or "JARVIS"
+                        except Exception:
+                            self._asst_name = "JARVIS"
+                        _provider = getattr(self, "_selected_text_provider", None) or "ollama_local"
+                        _label = "Ollama Cloud" if _provider == "ollama_cloud" else "Ollama Local"
+                        self.ui.write_log(f"SYS: {_label} text brain ready; microphone and speech output unavailable.")
                     elif self._wake_enabled:
                         self._ensure_wake_detector()
                         self._awake = False
@@ -2235,7 +2244,9 @@ class JarvisLive:
                     continue
 
                 if _text_model:
-                    self.ui.write_log("SYS: Local brain session failed; selected provider remains Ollama Local. Retrying.")
+                    _provider = getattr(self, "_selected_text_provider", None) or "ollama_local"
+                    _label = "Ollama Cloud" if _provider == "ollama_cloud" else "Ollama Local"
+                    self.ui.write_log(f"SYS: {_label} session failed; selected provider remains {_label}. Retrying.")
                     await asyncio.sleep(3)
                     continue
 
