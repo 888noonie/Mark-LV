@@ -2188,7 +2188,7 @@ class JarvisLive:
                             self._asst_name = "JARVIS"
                         _provider = getattr(self, "_selected_text_provider", None) or "ollama_local"
                         _label = "Ollama Cloud" if _provider == "ollama_cloud" else "Ollama Local"
-                        self.ui.write_log(f"SYS: {_label} text brain ready; microphone and speech output unavailable.")
+                        self.ui.write_log(f"SYS: {_label} text brain ready; microphone unavailable. Typed answers use the selected OFOX voice when speech is on.")
                     elif self._wake_enabled:
                         self._ensure_wake_detector()
                         self._awake = False
