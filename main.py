@@ -2112,6 +2112,8 @@ class JarvisLive:
             self._dashboard = None
 
         while True:
+            self._reconnect_event.clear()
+            _text_model = getattr(self, "_selected_text_model", None)
             try:
                 print("[JARVIS] Connecting...")
                 self.ui.set_state("THINKING")
@@ -2119,31 +2121,37 @@ class JarvisLive:
                 # off a quota limit is skipped; the name is published back to
                 # LIVE_MODEL so plugins follow whatever is actually in use.
                 global LIVE_MODEL
-                LIVE_MODEL = _gemini.live_model()
-                live_model = LIVE_MODEL
-                print(f"[JARVIS] Live model: {live_model}")
+                if _text_model:
+                    live_model = None
+                    print(f"[JARVIS] Local text model: {_text_model}")
+                else:
+                    LIVE_MODEL = _gemini.live_model()
+                    live_model = LIVE_MODEL
+                    print(f"[JARVIS] Live model: {live_model}")
 
                 _resumed_with = self._resume_handle is not None
-                config = self._build_config()
+                if not _text_model:
+                    config = self._build_config()
 
-                # Fresh client on every reconnect — avoids stale HTTP session state
-                # v1alpha carries proactive audio; if it gets rejected we fall
-                # back to v1beta.
-                client = genai.Client(
-                    api_key=_get_api_key(),
-                    http_options={"api_version": "v1alpha" if self._enhanced_live else "v1beta"}
-                )
+                    # Fresh client on every reconnect — avoids stale HTTP session state
+                    # v1alpha carries proactive audio; if it gets rejected we fall
+                    # back to v1beta.
+                    client = genai.Client(
+                        api_key=_get_api_key(),
+                        http_options={"api_version": "v1alpha" if self._enhanced_live else "v1beta"}
+                    )
 
                 async with (
-                    client.aio.live.connect(model=live_model, config=config) as session,
+                    (__import__("ollama_brain").connect(self, _text_model) if _text_model else client.aio.live.connect(model=live_model, config=config)) as session,
                     asyncio.TaskGroup() as tg,
                 ):
                     self.session          = session
                     try:
                         import instruction_runtime as _instruction_runtime
-                        _instruction_runtime.flush_pending_deliveries(self)
+                        if not _text_model:
+                            _instruction_runtime.flush_pending_deliveries(self)
                         pending_typed = list(getattr(self, "_pending_typed_commands", []) or [])
-                        if pending_typed:
+                        if pending_typed and not _text_model:
                             self._on_text_command(pending_typed[0])
                     except Exception:
                         pass
@@ -2168,7 +2176,11 @@ class JarvisLive:
 
                     # Wake word: if enabled, come up ASLEEP (mic gated, silent)
                     # until the user says "Hey Jarvis" or taps wake in the UI.
-                    if self._wake_enabled:
+                    if _text_model:
+                        self._awake = not self._wake_enabled
+                        self.ui.set_state("SLEEPING" if self._wake_enabled else "LISTENING")
+                        self.ui.write_log("SYS: Local text brain ready; microphone and speech output unavailable.")
+                    elif self._wake_enabled:
                         self._ensure_wake_detector()
                         self._awake = False
                         self.ui.set_state("SLEEPING")
@@ -2181,25 +2193,25 @@ class JarvisLive:
                     if self._dashboard:
                         await self._dashboard.broadcast({"type": "status", "state": "active"})
 
-                    self._reconnect_event.clear()  # ignore requests from before this session
                     tg.create_task(self._watch_reconnect())
-                    tg.create_task(self._send_realtime())
-                    tg.create_task(self._listen_audio())
-                    tg.create_task(self._receive_audio())
-                    tg.create_task(self._play_audio())
-                    tg.create_task(self._run_system_monitor())
-                    tg.create_task(self._run_background_monitor())
-                    tg.create_task(self._run_proactive_mode())
-                    tg.create_task(self._run_sleep_watch())
-                    if self._dashboard:
-                        tg.create_task(self._relay_phone_audio())
+                    if not _text_model:
+                        tg.create_task(self._send_realtime())
+                        tg.create_task(self._listen_audio())
+                        tg.create_task(self._receive_audio())
+                        tg.create_task(self._play_audio())
+                        tg.create_task(self._run_system_monitor())
+                        tg.create_task(self._run_background_monitor())
+                        tg.create_task(self._run_proactive_mode())
+                        tg.create_task(self._run_sleep_watch())
+                        if self._dashboard:
+                            tg.create_task(self._relay_phone_audio())
 
-                    # Morning briefing — fires once per process launch (if enabled).
-                    # Skipped in wake-word mode: it comes up asleep, and a briefing
-                    # would mean talking while "asleep".
-                    if not self._briefing_sent and get_brief_enabled() and self._awake:
-                        self._briefing_sent = True
-                        tg.create_task(self._send_startup_briefing())
+                        # Morning briefing — fires once per process launch (if enabled).
+                        # Skipped in wake-word mode: it comes up asleep, and a briefing
+                        # would mean talking while "asleep".
+                        if not self._briefing_sent and get_brief_enabled() and self._awake:
+                            self._briefing_sent = True
+                            tg.create_task(self._send_startup_briefing())
 
             except KeyboardInterrupt:
                 raise
@@ -2220,6 +2232,11 @@ class JarvisLive:
                         # handle so the next connect really does start empty.
                         self._resume_handle = None
                     self._conn_backoff = 0
+                    continue
+
+                if _text_model:
+                    self.ui.write_log("SYS: Local brain session failed; selected provider remains Ollama Local. Retrying.")
+                    await asyncio.sleep(3)
                     continue
 
                 # A resumption handle the server will not accept — expired, or
